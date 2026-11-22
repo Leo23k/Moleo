@@ -1,19 +1,21 @@
-# README
+# Moleo (desktop app)
 
-## About
+A Go + Wails desktop front end for Mole for Windows: Clean, Apps, Optimize,
+Analyze, Status and Recover, in English or Vietnamese.
 
-This is the official Wails Vanilla template.
+## Build
 
-You can configure the project by editing `wails.json`. More information about the project settings can be found
-here: https://wails.io/docs/reference/project-config
+```powershell
+wails build        # -> build/bin/Moleo.exe
+wails dev          # live reload while editing frontend/src
+```
 
-## Live Development
+The app finds `mole.ps1` by walking up from the executable, so run it from
+inside this repository (Apps and Optimize call the CLI scripts in `bin/`).
 
-To run in live development mode, run `wails dev` in the project directory. This will run a Vite development
-server that will provide very fast hot reload of your frontend changes. If you want to develop in a browser
-and have access to your Go methods, there is also a dev server that runs on http://localhost:34115. Connect
-to this in your browser, and you can call your Go code from devtools.
+## Credits
 
-## Building
-
-To build a redistributable, production mode package, use `wails build`.
+Planet textures in `frontend/src/assets/planets/` are from
+[Solar System Scope](https://www.solarsystemscope.com/textures/), licensed
+under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), based on NASA
+data.

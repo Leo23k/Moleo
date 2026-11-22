@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 )
 
@@ -23,6 +24,7 @@ type App struct {
 	binItems     map[string]binItem
 	winfr        *exec.Cmd
 	status       statusState
+	filesCancel  atomic.Bool
 }
 
 func NewApp() *App { return &App{} }

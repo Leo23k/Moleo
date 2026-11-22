@@ -1,7 +1,20 @@
 import {AppIcons, ListApps, UninstallApps, ListUpdates, UpdateApp, ListStartup, SetStartup, OpenBackups} from '../../wailsjs/go/main/App';
-import {fmt, esc, confirmBox, hero} from '../util.js';
+import {fmt, esc, confirmBox, hero, warnIcon} from '../util.js';
 
 let sub = 'uninstall';
+
+// Components other apps or Windows depend on.
+const DEPENDENCY_RULES = [
+  [/visual c\+\+.*redistributable|vcredist|\.net (runtime|desktop runtime|framework)|asp\.net core|windows desktop runtime|webview2|directx|java\(tm\)|java .*runtime|openjdk|python launcher|microsoft (ui xaml|vclibs|.net native)/i,
+    'Shared runtime: other apps may stop working without it.'],
+  [/driver|chipset|realtek|rtkaud|igfx|nvdisplay|nvbackend|intel\(r\)|nvidia (graphics|physx|hd audio|frameview)|amd (software|chipset)|synaptics|elan|bluetooth|thunderbolt|dolby|waves maxx/i,
+    'Driver or hardware software: a device may stop working.'],
+  [/security|securityhealth|antivirus|defender|vanguard|easy ?anti-?cheat|battleye/i,
+    'Security or anti-cheat software: games or protection may stop working.'],
+  [/microsoft edge$|microsoft edge update|windows sdk|windows software development kit|microsoft update health|windows pc health/i,
+    'Part of Windows or its tools: Windows may reinstall or need it.'],
+];
+const appWarning = name => (DEPENDENCY_RULES.find(([re]) => re.test(name)) || [])[1] || '';
 const state = {
   apps: null, sel: new Set(), q: '', sort: 'size', busy: '',
   updates: null, updating: new Map(),
@@ -82,7 +95,7 @@ async function drawUninstall(body, el) {
     const total = state.apps.reduce((s, a) => s + a.SizeKB * 1024, 0);
     body.innerHTML = `<div class="muted listhead">Installed Apps · ${state.apps.length} apps · ${fmt(total)}</div>
       <div class="applist">${list.map(a => `<label class="approw ${state.sel.has(a.Id) ? 'sel' : ''}">
-        ${tile(a.Name)}<div class="grow"><div class="name">${esc(a.Name)}</div>
+        ${tile(a.Name)}<div class="grow"><div class="name">${esc(a.Name)}${warnIcon(appWarning(a.Name))}</div>
         <div class="path">${esc([a.Version, a.SizeKB ? fmt(a.SizeKB * 1024) : '', a.Source === 'WindowsStore' ? 'Store app' : ''].filter(Boolean).join(' · '))}</div></div>
         <input type="checkbox" data-id="${esc(a.Id)}" ${state.sel.has(a.Id) ? 'checked' : ''}></label>`).join('')}</div>
       <div class="bottombar"><span id="selinfo"></span><a id="clear" class="link">Clear selection</a><button class="btn" id="remove"></button></div>`;
@@ -106,7 +119,7 @@ async function drawUninstall(body, el) {
 
 async function doUninstall(sel, el) {
   const ok = await confirmBox(`Remove ${sel.length} app${sel.length > 1 ? 's' : ''}?`,
-    esc(sel.map(a => a.Name).join(', ')) + '<br><br>Each uninstaller runs (some show their own window). Leftover files go to the Recycle Bin, and registry entries are backed up first.',
+    esc(sel.map(a => a.Name).join(', ')) + sel.filter(a => appWarning(a.Name)).map(a => `<br><br><span class="warntext">⚠ ${esc(a.Name)}: ${esc(appWarning(a.Name))}</span>`).join('') + '<br><br>Each uninstaller runs (some show their own window). Leftover files go to the Recycle Bin, and registry entries are backed up first.',
     'Remove');
   if (!ok) return;
   state.busy = `Removing ${sel.length} app${sel.length > 1 ? 's' : ''}… follow any uninstaller windows that open.`;
@@ -143,7 +156,7 @@ async function drawUpdates(body, el) {
       return `<div class="approw">${tile(u.name)}<div class="grow"><div class="name">${esc(u.name)}</div>
         <div class="path">${esc(u.version)} → ${esc(u.available)} · ${esc(u.id)}</div></div>${right}</div>`;
     }).join('')}</div>
-    <div class="bottombar"><span class="muted">Updates install silently through winget.</span><button class="btn" id="upall" ${pending.length ? '' : 'disabled'}>Update all ${pending.length}</button></div>`;
+    <div class="bottombar"><span class="muted">Updates install silently through winget. An app that is open may be closed by its installer: save your work first.</span><button class="btn" id="upall" ${pending.length ? '' : 'disabled'}>Update all ${pending.length}</button></div>`;
   body.querySelectorAll('[data-up]').forEach(b => b.onclick = () => runUpdates([b.dataset.up], el));
   body.querySelector('#upall').onclick = () => runUpdates(pending.map(u => u.id), el);
 }
@@ -170,7 +183,7 @@ async function drawStartup(body, el) {
       · a backup is saved before every change · <a class="link" id="backups">Open backups</a></div>
     ${state.startupErr ? `<div class="bad listhead">${esc(state.startupErr)}</div>` : ''}
     <div class="applist">${state.startup.map(s => `<div class="approw">${tile(s.name)}
-      <div class="grow"><div class="name">${esc(s.name)}${s.needAdmin ? ' <span class="tag">All users</span>' : ''}</div>
+      <div class="grow"><div class="name">${esc(s.name)}${warnIcon(appWarning(s.name))}${s.needAdmin ? ' <span class="tag">All users</span>' : ''}</div>
       <div class="path" title="${esc(s.command)}">${esc(s.command)}</div></div>
       <label class="switch"><input type="checkbox" data-id="${s.id}" ${s.enabled ? 'checked' : ''}><span></span></label></div>`).join('')}</div>`;
   body.querySelector('#backups').onclick = () => OpenBackups();

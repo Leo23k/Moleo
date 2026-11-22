@@ -36,3 +36,6 @@ export function hero(el, {orb, line, buttons = [], spin = false}) {
     box.appendChild(btn);
   }
 }
+
+// ⚠ with an explanation on hover; empty when there is nothing to warn about.
+export const warnIcon = text => (text ? `<span class="warnico" title="${esc(text)}">⚠</span>` : '');

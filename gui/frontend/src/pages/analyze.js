@@ -1,6 +1,6 @@
 import {ListDrives, PickFolder, StartAnalyze, CancelAnalyze, AnalyzeLevel, RecyclePaths, Reveal} from '../../wailsjs/go/main/App';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
-import {fmt, esc, confirmBox, hero} from '../util.js';
+import {fmt, esc, confirmBox, hero, warnIcon} from '../util.js';
 
 let view = 'home';        // home | drives | scanning | map
 let level = null;
@@ -141,7 +141,7 @@ function drawMap(el) {
       <div class="alist">${items.map((it, i) => `<div class="arow ${it.isDir ? 'dir' : ''}" data-i="${i}">
         ${it.other ? '<span style="width:16px"></span>' : `<input type="checkbox" data-i="${i}" ${selected.has(it.path) ? 'checked' : ''}>`}
         <span class="sw" style="background:${PALETTE[i % PALETTE.length]}"></span>
-        <div class="grow"><div class="name">${it.isDir ? '📁 ' : ''}${esc(it.name)}</div>
+        <div class="grow"><div class="name">${it.isDir ? '📁 ' : ''}${esc(it.name)}${warnIcon(it.warn)}</div>
         <div class="path">${(100 * it.size / level.size).toFixed(1)}%${it.isDir ? ' · ' + it.files.toLocaleString() + ' files' : ''}</div></div>
         <span class="size">${fmt(it.size)}</span>
         ${it.other ? '' : `<button class="iconbtn" style="font-size:13px" data-reveal="${i}" title="Show in Explorer">↗</button>`}</div>`).join('')}</div></div>
@@ -154,9 +154,9 @@ function drawMap(el) {
     tm.innerHTML = squarify(items, 0, 0, r.width, r.height).map(b => {
       const i = items.indexOf(b.item);
       const big = b.w > 70 && b.h > 34;
-      return `<div class="tile ${b.item.isDir ? 'dir' : ''}" data-i="${i}" title="${esc(b.item.name)} · ${fmt(b.item.size)}"
+      return `<div class="tile ${b.item.isDir ? 'dir' : ''}" data-i="${i}" title="${esc(b.item.name)} · ${fmt(b.item.size)}${b.item.warn ? ' — ⚠ ' + esc(b.item.warn) : ''}"
         style="left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px;background:${PALETTE[i % PALETTE.length]}">
-        ${big ? `<div class="tname">${esc(b.item.name)}</div><div class="tsize">${fmt(b.item.size)}</div>` : ''}</div>`;
+        ${big ? `<div class="tname">${b.item.warn ? '⚠ ' : ''}${esc(b.item.name)}</div><div class="tsize">${fmt(b.item.size)}</div>` : ''}</div>`;
     }).join('');
     tm.querySelectorAll('.tile').forEach(t => t.onclick = () => go(el, items[+t.dataset.i]));
   };
@@ -190,7 +190,7 @@ function bar(el, items) {
   el.querySelector('#selinfo').textContent = sel.length ? `${sel.length} selected · ${fmt(sel.reduce((s, i) => s + i.size, 0))}` : 'Select items to move them to the Recycle Bin';
   btn.onclick = async () => {
     const ok = await confirmBox(`Move ${sel.length} item${sel.length > 1 ? 's' : ''} to the Recycle Bin?`,
-      esc(sel.map(i => i.name).join(', ')) + '<br><br>You can restore them from the Recycle Bin.', 'Move to Recycle Bin');
+      esc(sel.map(i => i.name).join(', ')) + sel.filter(i => i.warn).map(i => `<br><br><span class="warntext">⚠ ${esc(i.name)}: ${esc(i.warn)}</span>`).join('') + '<br><br>You can restore them from the Recycle Bin.', 'Move to Recycle Bin');
     if (!ok) return;
     try { await RecyclePaths(sel.map(i => i.path)); } catch (e) { await confirmBox('Could not remove', esc(e), 'OK'); }
     openAndDraw(el, level.path);

@@ -1,10 +1,7 @@
 import {ScanClean, RunClean, Reveal} from '../../wailsjs/go/main/App';
 import {EventsOn} from '../../wailsjs/runtime/runtime';
-import {fmt, esc, confirmBox, hero} from '../util.js';
+import {fmt, esc, confirmBox, hero, warnIcon} from '../util.js';
 
-// Developer caches and the Recycle Bin cost something to clear, so
-// "Recommended" leaves them out.
-const NOT_RECOMMENDED = new Set(['dev', 'bin']);
 let scan = null;
 let selected = new Set();
 const open = new Set();
@@ -18,7 +15,8 @@ export function render(el) {
   });
 }
 
-const recommended = () => scan.entries.filter(e => !NOT_RECOMMENDED.has(e.category)).map(e => e.id);
+// Go decides: no developer caches, Recycle Bin, GPU shader caches, or caches of apps that are open.
+const recommended = () => scan.entries.filter(e => e.recommended).map(e => e.id);
 
 async function startScan(el) {
   el.innerHTML = `<div class="hero"><div class="orb spin" style="--orb:#6f8fb3"></div>
@@ -48,15 +46,16 @@ function catHtml(c) {
   const selBytes = sel.reduce((s, e) => s + e.bytes, 0);
   const all = c.items.reduce((s, e) => s + e.bytes, 0);
   const full = sel.length === c.items.length;
+  const shared = c.items.every(e => e.warn && e.warn === c.items[0].warn) ? c.items[0].warn : '';
   const items = c.items.map(e => `<div class="item">
       <input type="checkbox" data-id="${e.id}" ${selected.has(e.id) ? 'checked' : ''}>
-      <div class="grow"><div class="name">${esc(e.name)}</div><div class="path">${esc(e.path)}</div></div>
+      <div class="grow"><div class="name">${esc(e.name)}${e.running ? `<span class="tag runtag">Open</span>${warnIcon(`${e.running} is open. Close it first: clearing the cache of a running app can break it until it restarts.`)}` : shared ? '' : warnIcon(e.warn)}</div><div class="path">${esc(e.path)}</div></div>
       <span class="size">${fmt(e.bytes)}</span>
       <button class="iconbtn" style="font-size:13px" data-reveal="${esc(e.path.split('  (+')[0])}" title="Show in Explorer">📁</button>
     </div>`).join('');
   return `<div class="cat ${open.has(c.id) ? 'open' : ''}" data-cat="${c.id}">
     <div class="cat-row"><input type="checkbox" ${full ? 'checked' : ''} ${sel.length && !full ? 'data-mixed' : ''}>
-      <div class="grow"><span class="title">${esc(c.name)}</span><span class="count">${sel.length}/${c.items.length} selected</span>
+      <div class="grow"><span class="title">${esc(c.name)}</span>${warnIcon(shared)}<span class="count">${sel.length}/${c.items.length} selected</span>
       <div class="desc">${esc(c.description)}</div></div>
       <span class="size">${selBytes === all ? fmt(all) : fmt(selBytes) + ' / ' + fmt(all)}</span><span class="chev">⌄</span></div>
     <div class="items">${items}</div></div>`;
@@ -117,6 +116,7 @@ function updateBar(el) {
   go.onclick = async () => {
     const ok = await confirmBox('Clean ' + fmt(bytes) + '?',
       `${sel.length} items will be deleted. Files that are in use are skipped.` +
+      (sel.some(e => e.running) ? `<br><span class="warntext">⚠ Open apps are skipped: ${esc([...new Set(sel.filter(e => e.running).map(e => e.running))].join(', '))}</span>` : '') +
       (hasBin ? '<br><b>Recycle Bin items are removed permanently.</b>' : ''), 'Clean');
     if (!ok) return;
     hero(el, {orb: '#6f8fb3', line: 'Cleaning…', spin: true});
@@ -126,7 +126,8 @@ function updateBar(el) {
       scan = null;
       hero(el, {orb: '#6fb38a', buttons: again,
         line: `Freed <b>${fmt(r.removedBytes)}</b> · ${r.removedFiles} files removed` +
-          (r.skipped ? `<br>${r.skipped} files in use or protected were skipped` : '')});
+          (r.skipped ? `<br>${r.skipped} files in use or protected were skipped` : '') +
+          ((r.skippedRunning || []).length ? `<br>Left alone because they are open: ${esc(r.skippedRunning.join(', '))}` : '')});
     } catch (e) {
       scan = null;
       hero(el, {orb: '#b36f6f', line: 'Clean failed: ' + esc(e), buttons: again});

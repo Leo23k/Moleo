@@ -54,6 +54,7 @@ type AnalyzeItem struct {
 	Files int64  `json:"files"`
 	IsDir bool   `json:"isDir"`
 	Other bool   `json:"other"`
+	Warn  string `json:"warn"`
 }
 
 type AnalyzeLevel struct {
@@ -265,6 +266,11 @@ func (a *App) AnalyzeLevel(path string) (*AnalyzeLevel, error) {
 	if n.otherBytes > 0 {
 		lvl.Items = append(lvl.Items, AnalyzeItem{Name: fmt.Sprintf("%d smaller files", n.otherCount), Size: n.otherBytes, Files: n.otherCount, Other: true})
 	}
+	for i := range lvl.Items {
+		if !lvl.Items[i].Other {
+			lvl.Items[i].Warn = pathWarning(lvl.Items[i].Path)
+		}
+	}
 	sort.Slice(lvl.Items, func(i, j int) bool { return lvl.Items[i].Size > lvl.Items[j].Size })
 	return lvl, nil
 }
@@ -296,8 +302,10 @@ func recycle(paths []string) error {
 	}
 	buf = append(buf, 0) // list ends with a double NUL
 	const foDelete = 3
-	const fofAllowUndo, fofNoConfirmation, fofSilent, fofNoErrorUI = 0x40, 0x10, 0x4, 0x400
-	op := shFileOpStruct{wFunc: foDelete, pFrom: &buf[0], fFlags: fofAllowUndo | fofNoConfirmation | fofSilent | fofNoErrorUI}
+	const fofAllowUndo, fofNoConfirmation, fofSilent, fofNoErrorUI, fofWantNukeWarning = 0x40, 0x10, 0x4, 0x400, 0x4000
+	// WANTNUKEWARNING: if an item is too big for the Recycle Bin, Windows asks
+	// before deleting it for good instead of silently doing so.
+	op := shFileOpStruct{wFunc: foDelete, pFrom: &buf[0], fFlags: fofAllowUndo | fofNoConfirmation | fofSilent | fofNoErrorUI | fofWantNukeWarning}
 	r, _, _ := procSHFileOperation.Call(uintptr(unsafe.Pointer(&op)))
 	if r != 0 {
 		return fmt.Errorf("could not move to Recycle Bin (code 0x%x)", r)

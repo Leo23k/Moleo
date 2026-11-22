@@ -152,3 +152,35 @@ select option { background: var(--panel-2); }
 .langsw { position: fixed; top: 18px; right: 18px; display: flex; padding: 3px; background: rgba(255,255,255,.06); border-radius: 999px; z-index: 5; }
 .langsw button { border: 0; background: none; color: var(--muted); font: 600 11px Consolas, monospace; padding: 5px 10px; border-radius: 999px; cursor: pointer; }
 .langsw button.on { background: var(--pill); color: var(--pill-text); }
+.warnico { color: #f0b86e; margin-left: 6px; cursor: help; font-size: 12px; }
+.warntext { color: #f0b86e; }
+
+/* ---- Slim scrollbars ---- */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #ffffff1f; border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: #ffffff40; }
+::-webkit-scrollbar-button { display: none; height: 0; }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---- Planets and per-tab background ---- */
+.planet { display: block; flex: none; }
+body { transition: background .6s; }
+body[data-tab="clean"]    { background: radial-gradient(120% 80% at 50% 0%, #1d2a3b 0%, var(--bg) 60%); }
+body[data-tab="apps"]     { background: radial-gradient(120% 80% at 50% 0%, #3a2420 0%, var(--bg) 60%); }
+body[data-tab="optimize"] { background: radial-gradient(120% 80% at 50% 0%, #2e2d2d 0%, var(--bg) 60%); }
+body[data-tab="analyze"]  { background: radial-gradient(120% 80% at 50% 0%, #46291a 0%, var(--bg) 60%); }
+body[data-tab="status"]   { background: radial-gradient(120% 80% at 50% 0%, #1b3229 0%, var(--bg) 60%); }
+body[data-tab="recover"]  { background: radial-gradient(120% 80% at 50% 0%, #22303a 0%, var(--bg) 60%); }
+
+/* ---- Free up page ---- */
+body[data-tab="space"] { background: radial-gradient(120% 80% at 50% 0%, #1c2740 0%, var(--bg) 60%); }
+.toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.toolbar label { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; }
+.toolbar select { flex: none; }
+.toolbar .field { max-width: 420px; }
+.drivepill { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.approw.dim { opacity: .5; }
+.dupgroup { border-top: 1px solid #ffffff0d; padding-top: 4px; }
+.qdesc { font-size: 11.5px; color: var(--muted); margin-top: 2px; }
+.runtag { background: #f0b86e22; color: #f0b86e; }

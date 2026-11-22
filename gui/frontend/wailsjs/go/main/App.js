@@ -14,12 +14,28 @@ export function CancelAnalyze() {
   return window['go']['main']['App']['CancelAnalyze']();
 }
 
+export function CancelFiles() {
+  return window['go']['main']['App']['CancelFiles']();
+}
+
+export function FindDuplicates(arg1, arg2) {
+  return window['go']['main']['App']['FindDuplicates'](arg1, arg2);
+}
+
+export function FindLargeFiles(arg1, arg2, arg3) {
+  return window['go']['main']['App']['FindLargeFiles'](arg1, arg2, arg3);
+}
+
 export function FindLostMedia() {
   return window['go']['main']['App']['FindLostMedia']();
 }
 
 export function FindPreviousVersions(arg1) {
   return window['go']['main']['App']['FindPreviousVersions'](arg1);
+}
+
+export function HomeDir() {
+  return window['go']['main']['App']['HomeDir']();
 }
 
 export function Info() {
@@ -50,6 +66,18 @@ export function ListUpdates() {
   return window['go']['main']['App']['ListUpdates']();
 }
 
+export function MoveCandidates() {
+  return window['go']['main']['App']['MoveCandidates']();
+}
+
+export function MoveCustomCandidate(arg1) {
+  return window['go']['main']['App']['MoveCustomCandidate'](arg1);
+}
+
+export function MoveFolder(arg1, arg2) {
+  return window['go']['main']['App']['MoveFolder'](arg1, arg2);
+}
+
 export function OpenBackups() {
   return window['go']['main']['App']['OpenBackups']();
 }
@@ -68,6 +96,14 @@ export function PickFolder() {
 
 export function PickSaveFolder() {
   return window['go']['main']['App']['PickSaveFolder']();
+}
+
+export function QuickItems() {
+  return window['go']['main']['App']['QuickItems']();
+}
+
+export function RecycleFiles(arg1) {
+  return window['go']['main']['App']['RecycleFiles'](arg1);
 }
 
 export function RecyclePaths(arg1) {
@@ -92,6 +128,10 @@ export function RunClean(arg1) {
 
 export function RunOptimizeTask(arg1) {
   return window['go']['main']['App']['RunOptimizeTask'](arg1);
+}
+
+export function RunQuick(arg1) {
+  return window['go']['main']['App']['RunQuick'](arg1);
 }
 
 export function SaveCopies(arg1, arg2) {
@@ -120,6 +160,10 @@ export function Status() {
 
 export function StopDeepScan() {
   return window['go']['main']['App']['StopDeepScan']();
+}
+
+export function UndoMove(arg1) {
+  return window['go']['main']['App']['UndoMove'](arg1);
 }
 
 export function UninstallApps(arg1) {

@@ -8,9 +8,17 @@ export function AppIcons(arg1:boolean):Promise<Record<string, string>>;
 
 export function CancelAnalyze():Promise<void>;
 
+export function CancelFiles():Promise<void>;
+
+export function FindDuplicates(arg1:Array<string>,arg2:number):Promise<Array<main.DupGroup>>;
+
+export function FindLargeFiles(arg1:string,arg2:number,arg3:number):Promise<Array<main.BigFile>>;
+
 export function FindLostMedia():Promise<Array<main.LostFile>>;
 
 export function FindPreviousVersions(arg1:string):Promise<Array<main.ShadowVersion>>;
+
+export function HomeDir():Promise<string>;
 
 export function Info():Promise<Record<string, string>>;
 
@@ -26,6 +34,12 @@ export function ListStartup():Promise<Array<main.StartupItem>>;
 
 export function ListUpdates():Promise<Array<main.UpdateItem>>;
 
+export function MoveCandidates():Promise<Array<main.MoveCandidate>>;
+
+export function MoveCustomCandidate(arg1:string):Promise<main.MoveCandidate>;
+
+export function MoveFolder(arg1:string,arg2:string):Promise<string>;
+
 export function OpenBackups():Promise<void>;
 
 export function OpenWinfrStore():Promise<void>;
@@ -35,6 +49,10 @@ export function OptimizeCatalog():Promise<Array<main.OptimizeTask>>;
 export function PickFolder():Promise<string>;
 
 export function PickSaveFolder():Promise<string>;
+
+export function QuickItems():Promise<Array<main.QuickItem>>;
+
+export function RecycleFiles(arg1:Array<string>):Promise<void>;
 
 export function RecyclePaths(arg1:Array<string>):Promise<void>;
 
@@ -47,6 +65,8 @@ export function Reveal(arg1:string):Promise<void>;
 export function RunClean(arg1:Array<string>):Promise<main.CleanResult>;
 
 export function RunOptimizeTask(arg1:string):Promise<main.OptimizeResult>;
+
+export function RunQuick(arg1:string):Promise<number>;
 
 export function SaveCopies(arg1:Array<string>,arg2:string):Promise<main.RestoreResult>;
 
@@ -61,6 +81,8 @@ export function StartDeepScan(arg1:string,arg2:string,arg3:string,arg4:string):P
 export function Status():Promise<main.StatusSnapshot>;
 
 export function StopDeepScan():Promise<void>;
+
+export function UndoMove(arg1:string):Promise<void>;
 
 export function UninstallApps(arg1:Array<string>):Promise<Array<main.AppResult>>;
 

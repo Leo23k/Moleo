@@ -7,6 +7,7 @@ export namespace main {
 	    files: number;
 	    isDir: boolean;
 	    other: boolean;
+	    warn: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AnalyzeItem(source);
@@ -20,6 +21,7 @@ export namespace main {
 	        this.files = source["files"];
 	        this.isDir = source["isDir"];
 	        this.other = source["other"];
+	        this.warn = source["warn"];
 	    }
 	}
 	export class AnalyzeLevel {
@@ -104,6 +106,47 @@ export namespace main {
 	        this.Details = source["Details"];
 	    }
 	}
+	export class BigFile {
+	    path: string;
+	    name: string;
+	    size: number;
+	    // Go type: time
+	    modified: any;
+	    warn: string;
+	    kind: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BigFile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.name = source["name"];
+	        this.size = source["size"];
+	        this.modified = this.convertValues(source["modified"], null);
+	        this.warn = source["warn"];
+	        this.kind = source["kind"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class BinEntry {
 	    id: string;
 	    name: string;
@@ -152,6 +195,9 @@ export namespace main {
 	    path: string;
 	    bytes: number;
 	    files: number;
+	    warn: string;
+	    running: string;
+	    recommended: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new CleanEntry(source);
@@ -165,12 +211,16 @@ export namespace main {
 	        this.path = source["path"];
 	        this.bytes = source["bytes"];
 	        this.files = source["files"];
+	        this.warn = source["warn"];
+	        this.running = source["running"];
+	        this.recommended = source["recommended"];
 	    }
 	}
 	export class CleanResult {
 	    removedBytes: number;
 	    removedFiles: number;
 	    skipped: number;
+	    skippedRunning: string[];
 	    errors: string[];
 	
 	    static createFrom(source: any = {}) {
@@ -182,6 +232,7 @@ export namespace main {
 	        this.removedBytes = source["removedBytes"];
 	        this.removedFiles = source["removedFiles"];
 	        this.skipped = source["skipped"];
+	        this.skippedRunning = source["skippedRunning"];
 	        this.errors = source["errors"];
 	    }
 	}
@@ -255,6 +306,40 @@ export namespace main {
 	        this.free = source["free"];
 	    }
 	}
+	export class DupGroup {
+	    size: number;
+	    files: BigFile[];
+	    waste: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new DupGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.size = source["size"];
+	        this.files = this.convertValues(source["files"], BigFile);
+	        this.waste = source["waste"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class LostFile {
 	    path: string;
 	    name: string;
@@ -293,6 +378,36 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class MoveCandidate {
+	    id: string;
+	    name: string;
+	    path: string;
+	    bytes: number;
+	    kind: string;
+	    group: string;
+	    moved: boolean;
+	    movedTo: string;
+	    note: string;
+	    elsewhere: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MoveCandidate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.bytes = source["bytes"];
+	        this.kind = source["kind"];
+	        this.group = source["group"];
+	        this.moved = source["moved"];
+	        this.movedTo = source["movedTo"];
+	        this.note = source["note"];
+	        this.elsewhere = source["elsewhere"];
+	    }
 	}
 	export class OptimizeResult {
 	    Id: string;
@@ -348,6 +463,34 @@ export namespace main {
 	        this.pid = source["pid"];
 	        this.cpu = source["cpu"];
 	        this.mem = source["mem"];
+	    }
+	}
+	export class QuickItem {
+	    id: string;
+	    name: string;
+	    desc: string;
+	    bytes: number;
+	    estimate: string;
+	    available: boolean;
+	    needsAdmin: boolean;
+	    warn: string;
+	    paths?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new QuickItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.desc = source["desc"];
+	        this.bytes = source["bytes"];
+	        this.estimate = source["estimate"];
+	        this.available = source["available"];
+	        this.needsAdmin = source["needsAdmin"];
+	        this.warn = source["warn"];
+	        this.paths = source["paths"];
 	    }
 	}
 	export class RestoreResult {

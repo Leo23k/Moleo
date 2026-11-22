@@ -19,15 +19,18 @@ import (
 )
 
 type CleanEntry struct {
-	ID       string   `json:"id"`
-	Category string   `json:"category"`
-	Name     string   `json:"name"`
-	Path     string   `json:"path"`
-	Bytes    int64    `json:"bytes"`
-	Files    int      `json:"files"`
-	roots    []string // existing roots to clear
-	minAge   int
-	binFiles []string // Recycle Bin: $R and $I files
+	ID        string   `json:"id"`
+	Category  string   `json:"category"`
+	Name      string   `json:"name"`
+	Path      string   `json:"path"`
+	Bytes     int64    `json:"bytes"`
+	Files     int      `json:"files"`
+	Warn      string   `json:"warn"`
+	Running   string   `json:"running"`     // app using this cache is open
+	Recommend bool     `json:"recommended"` // selected by "Recommended"
+	roots     []string // existing roots to clear
+	minAge    int
+	binFiles  []string // Recycle Bin: $R and $I files
 }
 
 type CleanScan struct {
@@ -38,10 +41,12 @@ type CleanScan struct {
 }
 
 type CleanResult struct {
-	RemovedBytes int64    `json:"removedBytes"`
-	RemovedFiles int      `json:"removedFiles"`
-	Skipped      int      `json:"skipped"`
-	Errors       []string `json:"errors"`
+	RemovedBytes int64 `json:"removedBytes"`
+	RemovedFiles int   `json:"removedFiles"`
+	Skipped      int   `json:"skipped"`
+	// Apps whose caches were left alone because they were open.
+	SkippedRunning []string `json:"skippedRunning"`
+	Errors         []string `json:"errors"`
 }
 
 var envPattern = regexp.MustCompile(`%([^%]+)%|\$\{([^}]+)\}`)
@@ -204,6 +209,16 @@ func (a *App) ScanClean() (*CleanScan, error) {
 		scan.Bytes += e.Bytes
 	}
 	scan.Entries = kept
+	procs := runningProcesses()
+	for _, e := range scan.Entries {
+		e.Warn = cleanWarning(e)
+		e.Running = runningOwner(e, procs)
+		e.Recommend = e.Category != "dev" && e.Category != "bin" && e.Running == "" && !shaderCaches[e.Name] &&
+			e.Name != "Windows Update download cache" // may be mid-download
+		if shaderCaches[e.Name] {
+			e.Warn = shaderWarn
+		}
+	}
 	sort.SliceStable(scan.Entries, func(i, j int) bool {
 		if scan.Entries[i].Category != scan.Entries[j].Category {
 			return false
@@ -287,9 +302,14 @@ func (a *App) RunClean(ids []string) (*CleanResult, error) {
 		return nil, errors.New("scan results expired, scan again")
 	}
 	res := &CleanResult{}
+	procs := runningProcesses() // check again: the app may have opened since the scan
 	for _, id := range ids {
 		e := entries[id]
 		if e == nil {
+			continue
+		}
+		if owner := runningOwner(e, procs); owner != "" {
+			res.SkippedRunning = append(res.SkippedRunning, owner)
 			continue
 		}
 		if len(e.binFiles) > 0 {
