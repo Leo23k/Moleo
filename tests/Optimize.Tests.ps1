@@ -127,6 +127,46 @@ Describe "mo optimize steps" {
     }
 }
 
+Describe "GUI Optimize task contract" {
+    It "lists each task separately and marks system actions for confirmation" {
+        $catalog = @(Get-GuiOptimizeCatalog)
+        @($catalog | Where-Object Kind -eq 'Action' | Where-Object RequiresConfirmation).Count | Should -Be 3
+        @($catalog | Where-Object Kind -eq 'Check' | Where-Object RequiresConfirmation).Count | Should -Be 0
+        ($catalog.Id -contains 'startup') | Should -BeTrue
+        ($catalog.Id -contains 'system-image') | Should -BeTrue
+    }
+
+    It "returns success only when the existing DNS cache action completes" {
+        $DryRun = $false
+        $env:MOLE_DRY_RUN = $null
+        Mock Clear-DnsClientCache { }
+        $result = Invoke-GuiOptimizeTask -Task 'dns-cache'
+        $result.Id | Should -Be 'dns-cache'
+        $result.State | Should -Be 'success'
+        $result.Details | Should -Match 'DNS cache flushed'
+        Should -Invoke Clear-DnsClientCache -Times 1 -Exactly
+    }
+
+    It "does not run a modifying task when Mole dry-run mode is enabled" {
+        $DryRun = $false
+        $env:MOLE_DRY_RUN = '1'
+        Mock Clear-DnsClientCache { throw 'dry-run must not flush DNS' }
+        $result = Invoke-GuiOptimizeTask -Task 'dns-cache'
+        $result.State | Should -Be 'preview'
+        Should -Invoke Clear-DnsClientCache -Times 0 -Exactly
+        $env:MOLE_DRY_RUN = $null
+    }
+
+    It "reports a failed existing task instead of a success" {
+        $DryRun = $false
+        $env:MOLE_DRY_RUN = $null
+        Mock Clear-DnsClientCache { throw 'fixture denial' }
+        $result = Invoke-GuiOptimizeTask -Task 'dns-cache'
+        $result.State | Should -Be 'error'
+        $result.Details | Should -Match 'Could not flush DNS cache'
+    }
+}
+
 Describe "Native optimization outcomes" {
     BeforeEach {
         $script:OptimizationsApplied = 0

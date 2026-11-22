@@ -583,7 +583,7 @@ function Get-MoleInstallEntries {
         "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", "CONTRIBUTORS.svg", "ISSUE-343-SUMMARY.md", "LICENSE", "Makefile",
         "README.md", "README_CN.md", "README_DE.md", "README_FR.md", "README_JA.md", "README_KR.md", "README_RU.md", "README_TW.md",
         "README_UA.md", "RELEASE.md", "SECURITY.md", "SECURITY_AUDIT.md", "SYNC.md", "TRADEMARK.md", "VERSION",
-        "bin", "cmd", "go.mod", "go.sum", "install.ps1", "lib", "mo.cmd", "mo.exe", "mole.cmd", "mole.ps1",
+        "bin", "cmd", "go.mod", "go.sum", "gui.ps1", "install.ps1", "lib", "mo.cmd", "mo.exe", "mole.cmd", "mole.ps1",
         "packaging", "quick-install.ps1", "scripts", "tests"
     )
 }
@@ -671,6 +671,7 @@ function Get-MoleInstallNestedFiles {
         "lib\clean\apps.ps1"
         "lib\clean\caches.ps1"
         "lib\clean\dev.ps1"
+        "lib\clean\plan.ps1"
         "lib\clean\system.ps1"
         "lib\clean\user.ps1"
         "lib\core\base.ps1"
@@ -695,12 +696,14 @@ function Get-MoleInstallNestedFiles {
         "scripts\test.ps1"
         "scripts\write-checksums.ps1"
         "tests\Clean.Tests.ps1"
+        "tests\CleanPlan.Tests.ps1"
         "tests\CleanupBoundary.Tests.ps1"
         "tests\CleanupTargets.Tests.ps1"
         "tests\Commands.Tests.ps1"
         "tests\Core.Tests.ps1"
         "tests\DryRun.Tests.ps1"
         "tests\DryRunEnvironment.Tests.ps1"
+        "tests\Gui.Tests.ps1"
         "tests\GitProxy.Tests.ps1"
         "tests\Install.Tests.ps1"
         "tests\InstallLifecycle.Tests.ps1"

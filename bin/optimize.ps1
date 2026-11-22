@@ -11,7 +11,12 @@ param(
     [switch]$DebugMode,
     
     [Alias('h')]
-    [switch]$ShowHelp
+    [switch]$ShowHelp,
+
+    [switch]$GuiCatalog,
+
+    [ValidateSet('disk-optimize','dns-cache','network-cache','startup','disk-health','windows-update','system-image')]
+    [string]$GuiTask
 )
 
 Set-StrictMode -Version Latest
@@ -535,6 +540,43 @@ function Test-WindowsUpdate {
     }
 }
 
+function Get-GuiOptimizeCatalog {
+    @(
+        [pscustomobject]@{ Id='disk-optimize'; Name='Optimize system drive'; Kind='Action'; RequiresConfirmation=$true; Description='Run Windows default volume optimization on the system drive. Requires administrator privileges.' }
+        [pscustomobject]@{ Id='dns-cache'; Name='Clear DNS cache'; Kind='Action'; RequiresConfirmation=$true; Description='Flush the Windows DNS resolver cache. Existing connections may resolve names again.' }
+        [pscustomobject]@{ Id='network-cache'; Name='Clear ARP cache'; Kind='Action'; RequiresConfirmation=$true; Description='Clear the local ARP cache. Windows will repopulate it as needed. Requires administrator privileges.' }
+        [pscustomobject]@{ Id='startup'; Name='Startup programs'; Kind='Check'; RequiresConfirmation=$false; Description='Count registered startup entries. This check does not disable anything.' }
+        [pscustomobject]@{ Id='disk-health'; Name='Disk health'; Kind='Check'; RequiresConfirmation=$false; Description='Read physical disk health reported by Windows.' }
+        [pscustomobject]@{ Id='windows-update'; Name='Windows Update'; Kind='Check'; RequiresConfirmation=$false; Description='Check for available Windows updates. This does not install updates.' }
+        [pscustomobject]@{ Id='system-image'; Name='System image health'; Kind='Check'; RequiresConfirmation=$false; Description='Read the Windows component store health verdict. Requires administrator privileges; this does not attempt repair.' }
+    )
+}
+
+function Invoke-GuiOptimizeTask {
+    param([Parameter(Mandatory)][string]$Task)
+
+    $entry = Get-GuiOptimizeCatalog | Where-Object Id -eq $Task | Select-Object -First 1
+    if (-not $entry) { throw 'Unknown Optimize task.' }
+    $script:DryRun = $DryRun -or ($env:MOLE_DRY_RUN -eq '1')
+    $output = switch ($Task) {
+        'disk-optimize' { Optimize-DiskDrive 6>&1 | Out-String }
+        'dns-cache' { Clear-DnsCache 6>&1 | Out-String }
+        'network-cache' { Optimize-Network 6>&1 | Out-String }
+        'startup' { Get-StartupPrograms 6>&1 | Out-String }
+        'disk-health' { Test-DiskHealth 6>&1 | Out-String }
+        'windows-update' { Test-WindowsUpdate 6>&1 | Out-String }
+        'system-image' { Test-SystemImage 6>&1 | Out-String }
+    }
+    $details = [string]$output -replace '\x1b\[[0-9;]*m',''
+    $details = (($details -split "`r?`n") | ForEach-Object { $_.Trim() } | Where-Object { $_ }) -join [Environment]::NewLine
+    $state = 'success'
+    if ($details -match '(?i)failed|could not (flush|clear|optimize|run)') { $state = 'error' }
+    elseif ($details -match '(?i)could not|not available|not found|requires administrator|skipped') { $state = 'unavailable' }
+    elseif ($entry.Kind -eq 'Action' -and $script:DryRun) { $state = 'preview' }
+    elseif (-not $details) { $state = 'unavailable' }
+    [pscustomobject]@{ Id=$entry.Id; Name=$entry.Name; State=$state; Details=$details }
+}
+
 # ============================================================================
 # Summary
 # ============================================================================
@@ -618,4 +660,11 @@ function Main {
 }
 
 # Run main
-try { Main } finally { Stop-Spinner }
+if ($GuiCatalog) {
+    Get-GuiOptimizeCatalog | ConvertTo-Json -Depth 4 -Compress
+}
+elseif ($GuiTask) {
+    try { Invoke-GuiOptimizeTask -Task $GuiTask | ConvertTo-Json -Depth 4 -Compress }
+    catch { [pscustomobject]@{ Id=$GuiTask; State='error'; Details=$_.Exception.Message } | ConvertTo-Json -Compress; exit 1 }
+}
+else { try { Main } finally { Stop-Spinner } }

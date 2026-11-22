@@ -156,6 +156,69 @@ Describe "Uninstall selection under strict mode" {
     }
 }
 
+Describe "GUI Apps backend contract" {
+    BeforeEach {
+        $script:SavedGuiDryRun = $env:MOLE_DRY_RUN
+        Remove-Item Env:\MOLE_DRY_RUN -ErrorAction SilentlyContinue
+        $script:GuiAppFixture = [pscustomobject]@{
+            Name='Fixture App'; Publisher='Fixture Publisher'; Version='1.2'; SizeKB=64L; SizeHuman='64 KB'; SizeChecked=$true
+            Source='Registry'; PackageFullName=$null; RegistryKey='Registry::HKEY_CURRENT_USER\Software\Fixture';
+            InstallLocation='C:\Fixture'; UninstallString='C:\Fixture\uninstall.exe'; QuietUninstallString=''
+        }
+    }
+
+    AfterEach {
+        if ($null -eq $script:SavedGuiDryRun) { Remove-Item Env:\MOLE_DRY_RUN -ErrorAction SilentlyContinue }
+        else { $env:MOLE_DRY_RUN = $script:SavedGuiDryRun }
+    }
+
+    It "returns display-only app data with an identity-bound opaque ID" {
+        $record = ConvertTo-GuiAppRecord $script:GuiAppFixture
+        $record.Name | Should -Be 'Fixture App'
+        $record.Id | Should -Match '^[a-f0-9]{64}$'
+        $record.PSObject.Properties.Name | Should -Not -Contain 'UninstallString'
+        $changed = $script:GuiAppFixture.PSObject.Copy()
+        $changed.Version = '1.3'
+        (Get-GuiAppId $changed) | Should -Not -Be $record.Id
+    }
+
+    It "rejects a changed app selection before starting any uninstaller" {
+        Mock Get-InstalledApplications { @($script:GuiAppFixture) }
+        Mock Uninstall-SelectedApps { }
+        { Invoke-GuiAppRequest -Request ([pscustomobject]@{ action='uninstall'; ids=@('stale-id') }) } | Should -Throw '*changed or are no longer available*'
+        Should -Invoke Uninstall-SelectedApps -Times 0 -Exactly
+    }
+
+    It "preserves Mole dry-run mode for GUI uninstall requests" {
+        $env:MOLE_DRY_RUN = '1'
+        Mock Get-InstalledApplications { @($script:GuiAppFixture) }
+        Mock Uninstall-SelectedApps { }
+        $id = Get-GuiAppId $script:GuiAppFixture
+        { Invoke-GuiAppRequest -Request ([pscustomobject]@{ action='uninstall'; ids=@($id) }) } | Should -Throw '*dry-run mode is enabled*'
+        Should -Invoke Uninstall-SelectedApps -Times 0 -Exactly
+    }
+
+    It "reports per-app state only after checking the registered entry" {
+        Mock Get-InstalledApplications { @($script:GuiAppFixture) }
+        Mock Uninstall-SelectedApps { }
+        Mock Test-UninstallEntryGone { $true }
+        $id = Get-GuiAppId $script:GuiAppFixture
+        $result = Invoke-GuiAppRequest -Request ([pscustomobject]@{ action='uninstall'; ids=@($id) })
+        $result.Results.Count | Should -Be 1
+        $result.Results[0].State | Should -Be 'success'
+        Should -Invoke Test-UninstallEntryGone -Times 1 -Exactly
+    }
+
+    It "does not report a failed uninstall as success when the app remains registered" {
+        Mock Get-InstalledApplications { @($script:GuiAppFixture) }
+        Mock Uninstall-SelectedApps { }
+        Mock Test-UninstallEntryGone { $false }
+        $id = Get-GuiAppId $script:GuiAppFixture
+        $result = Invoke-GuiAppRequest -Request ([pscustomobject]@{ action='uninstall'; ids=@($id) })
+        $result.Results[0].State | Should -Be 'failed'
+    }
+}
+
 Describe "Install folder eligibility" {
     It "Rejects <Label>" -TestCases @(
         @{ Label = "a drive root"; Path = "C:\" }

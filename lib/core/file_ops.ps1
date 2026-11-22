@@ -37,6 +37,9 @@ function Get-MolePathSnapshot {
             Add-Type -TypeDefinition @'
 using System;
 using System.ComponentModel;
+using System.IO;
+using System.Security.Cryptography;
+using System.Threading;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 namespace Mole {
@@ -53,13 +56,102 @@ namespace Mole {
         private static extern bool GetFileInformationByHandle(SafeFileHandle handle, out Info info);
         public string Identity;
         public bool Link;
+        public ulong Length;
+        public long LastWriteUtcTicks;
+        public uint Attributes;
+        public uint Links;
         public static SafePathIdentity Read(string path) {
             using (SafeFileHandle handle = CreateFile(path, 0x80, 7, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
                 if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
                 Info info;
                 if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
                 return new SafePathIdentity { Identity = info.Volume + ":" + info.IndexHigh + ":" + info.IndexLow,
-                    Link = (info.Attributes & 0x400) != 0 };
+                    Link = (info.Attributes & 0x400) != 0, Attributes = info.Attributes, Links = info.Links,
+                    Length = ((ulong)info.SizeHigh << 32) | info.SizeLow,
+                    LastWriteUtcTicks = DateTime.FromFileTimeUtc(((long)info.WriteHigh << 32) | info.WriteLow).Ticks };
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct Disposition { [MarshalAs(UnmanagedType.Bool)] public bool Delete; }
+        [DllImport("kernel32.dll", SetLastError=true)]
+        private static extern bool SetFileInformationByHandle(SafeFileHandle handle, int infoClass, ref Disposition info, uint size);
+
+        [DllImport("kernel32.dll", SetLastError=true)]
+        private static extern bool ReadFile(SafeFileHandle handle, byte[] buffer, uint count, out uint read, IntPtr overlapped);
+        private static string HashHandle(SafeFileHandle handle) {
+            using (SHA256 sha = SHA256.Create()) {
+                byte[] buffer = new byte[65536];
+                uint read;
+                while (true) {
+                    if (!ReadFile(handle, buffer, (uint)buffer.Length, out read, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    if (read == 0) break;
+                    sha.TransformBlock(buffer, 0, (int)read, buffer, 0);
+                }
+                sha.TransformFinalBlock(new byte[0], 0, 0);
+                return BitConverter.ToString(sha.Hash).Replace("-", String.Empty);
+            }
+        }
+        // shortcut: Existing compatible writers can outlive the final hash; use oplocks if stronger exclusion is required.
+        public static string HashFile(string path, CancellationToken cancellation) {
+            using (SafeFileHandle handle = CreateFile(path, 0x80000080, 7, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero)) {
+                if (handle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+                Info info;
+                if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                if ((info.Attributes & 0x410) != 0) throw new IOException("A cleanup target is not a regular file.");
+                using (SHA256 sha = SHA256.Create()) {
+                    byte[] buffer = new byte[65536];
+                    uint read;
+                    while (true) {
+                        cancellation.ThrowIfCancellationRequested();
+                        if (!ReadFile(handle, buffer, (uint)buffer.Length, out read, IntPtr.Zero)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                        if (read == 0) break;
+                        sha.TransformBlock(buffer, 0, (int)read, buffer, 0);
+                    }
+                    sha.TransformFinalBlock(new byte[0], 0, 0);
+                    return BitConverter.ToString(sha.Hash).Replace("-", String.Empty);
+                }
+            }
+        }
+        public static void DeleteFileBound(string[] paths, string[] identities, ulong length, long writeTicks, uint attributes, string expectedHash) {
+            if (paths == null || identities == null || paths.Length == 0 || paths.Length != identities.Length)
+                throw new IOException("The cleanup snapshot is incomplete.");
+            var handles = new System.Collections.Generic.List<SafeFileHandle>();
+            try {
+                SafeFileHandle target = null;
+                for (int i = 0; i < paths.Length; i++) {
+                    bool leaf = i == paths.Length - 1;
+                    uint access = (uint)0x80 | (leaf ? ((uint)0x10000 | 0x80000000u) : 0u);
+                    uint share = leaf ? 0u : 3u;
+                    SafeFileHandle handle = CreateFile(paths[i], access, share, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+                    if (handle.IsInvalid) { int error = Marshal.GetLastWin32Error(); handle.Dispose(); throw new Win32Exception(error); }
+                    handles.Add(handle);
+                    Info info;
+                    if (!GetFileInformationByHandle(handle, out info)) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    if ((info.Attributes & 0x400) != 0) throw new IOException("A cleanup path is a reparse point.");
+                    string identity = info.Volume + ":" + info.IndexHigh + ":" + info.IndexLow;
+                    if (!String.Equals(identity, identities[i], StringComparison.Ordinal)) throw new IOException("A cleanup path changed after scanning.");
+                    bool directory = (info.Attributes & 0x10) != 0;
+                    if (leaf) {
+                        if (directory) throw new IOException("The scanned file changed type.");
+                        if (info.Links != 1) throw new IOException("Files with multiple hard links are not eligible.");
+                        ulong currentLength = ((ulong)info.SizeHigh << 32) | info.SizeLow;
+                        long currentWrite = DateTime.FromFileTimeUtc(((long)info.WriteHigh << 32) | info.WriteLow).Ticks;
+                        if (currentLength != length || currentWrite != writeTicks || info.Attributes != attributes)
+                            throw new IOException("The file changed after scanning.");
+                        if (!String.Equals(HashHandle(handle), expectedHash, StringComparison.Ordinal))
+                            throw new IOException("The file contents changed after scanning.");
+                        target = handle;
+                    }
+                    else if (!directory) throw new IOException("A parent path changed type.");
+                }
+
+                var disposition = new Disposition { Delete = true };
+                if (!SetFileInformationByHandle(target, 4, ref disposition, (uint)Marshal.SizeOf(typeof(Disposition))))
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            finally {
+                for (int i = handles.Count - 1; i >= 0; i--) handles[i].Dispose();
             }
         }
     }
@@ -100,6 +192,116 @@ function Test-MolePathSnapshot {
         if ($now.Entries[$path] -ne $Snapshot.Entries[$path]) { return $false }
     }
     return $true
+}
+
+function New-MoleCleanFileSnapshot {
+    param([Parameter(Mandatory)][string]$Path, [System.Threading.CancellationToken]$CancellationToken = [System.Threading.CancellationToken]::None)
+
+    if (-not (Test-SafePath -Path $Path)) { return $null }
+    $pathSnapshot = Get-MolePathSnapshot -Path $Path
+    if (-not $pathSnapshot) { return $null }
+    try {
+        $stamp = [Mole.SafePathIdentity]::Read($pathSnapshot.Path)
+        if ($stamp.Link -or ($stamp.Attributes -band 0x10) -ne 0 -or $stamp.Links -ne 1) { return $null }
+        $hash = [Mole.SafePathIdentity]::HashFile($pathSnapshot.Path, $CancellationToken)
+        $afterPath = Get-MolePathSnapshot -Path $pathSnapshot.Path
+        $afterStamp = [Mole.SafePathIdentity]::Read($pathSnapshot.Path)
+        $samePath = $null -ne $afterPath -and $afterPath.Entries.Count -eq $pathSnapshot.Entries.Count
+        if ($samePath) {
+            foreach ($entryPath in $pathSnapshot.Entries.Keys) {
+                if ($afterPath.Entries[$entryPath] -ne $pathSnapshot.Entries[$entryPath]) { $samePath = $false; break }
+            }
+        }
+        if (-not $samePath -or
+            $afterStamp.Identity -ne $stamp.Identity -or $afterStamp.Length -ne $stamp.Length -or
+            $afterStamp.LastWriteUtcTicks -ne $stamp.LastWriteUtcTicks -or $afterStamp.Attributes -ne $stamp.Attributes) { return $null }
+        return @{
+            Path = $pathSnapshot.Path
+            Entries = $pathSnapshot.Entries.Clone()
+            Length = [uint64]$stamp.Length
+            LastWriteUtcTicks = [long]$stamp.LastWriteUtcTicks
+            Attributes = [uint32]$stamp.Attributes
+            Sha256 = $hash
+        }
+    }
+    catch {
+        $base = $_.Exception.GetBaseException()
+        if ($base -is [System.OperationCanceledException]) { throw $base }
+        Write-Debug "Could not snapshot planned cleanup file: $Path - $_"
+        return $null
+    }
+}
+
+function Get-MoleCleanFileSnapshotError {
+    param([hashtable]$Snapshot)
+
+    if ($null -eq $Snapshot -or -not (Test-SafePath -Path $Snapshot.Path)) {
+        return 'The path is protected or whitelisted.'
+    }
+    $pathSnapshot = Get-MolePathSnapshot -Path $Snapshot.Path
+    if (-not $pathSnapshot) { return 'The file disappeared, became inaccessible, or is a reparse point.' }
+    if ($pathSnapshot.Entries.Count -ne $Snapshot.Entries.Count) { return 'A parent path changed after scanning.' }
+    foreach ($path in $Snapshot.Entries.Keys) {
+        if ($pathSnapshot.Entries[$path] -ne $Snapshot.Entries[$path]) { return 'A parent path changed after scanning.' }
+    }
+    try { $stamp = [Mole.SafePathIdentity]::Read($Snapshot.Path) }
+    catch {
+        $base = $_.Exception.GetBaseException()
+        if ($base -is [System.ComponentModel.Win32Exception] -and $base.NativeErrorCode -in 5, 32, 33) {
+            return 'Access denied or the file is in use.'
+        }
+        return 'The file cannot be accessed. Scan again and check its permissions.'
+    }
+    if ($stamp.Link) { return 'The target became a reparse point.' }
+    if (($stamp.Attributes -band 0x10) -ne 0) { return 'The target changed type after scanning.' }
+    if ($stamp.Links -ne 1) { return 'Files with multiple hard links are not eligible.' }
+    if ($stamp.Length -ne $Snapshot.Length -or $stamp.LastWriteUtcTicks -ne $Snapshot.LastWriteUtcTicks -or
+        $stamp.Attributes -ne $Snapshot.Attributes) { return 'The file changed after scanning. Scan again.' }
+    return $null
+}
+
+function Invoke-MoleSafePlanFileRemoval {
+    param(
+        [string]$Path,
+        [string]$Description,
+        [hashtable]$ExpectedSnapshot
+    )
+
+    if ($script:MoleDryRunMode) {
+        return [pscustomobject]@{ Success = $false; Path = $Path; BytesRemoved = 0; Error = 'Plan execution requires dry-run mode to be off.' }
+    }
+    $snapshotError = Get-MoleCleanFileSnapshotError -Snapshot $ExpectedSnapshot
+    if ($snapshotError -or -not [string]::Equals([IO.Path]::GetFullPath($Path), $ExpectedSnapshot.Path, [StringComparison]::OrdinalIgnoreCase)) {
+        if (-not $snapshotError) { $snapshotError = 'The requested path does not match the scanned item.' }
+        return [pscustomobject]@{ Success = $false; Path = $Path; BytesRemoved = 0; Error = $snapshotError }
+    }
+
+    $paths = @($ExpectedSnapshot.Entries.Keys | Sort-Object Length)
+    $identities = @($paths | ForEach-Object { [string]$ExpectedSnapshot.Entries[$_] })
+    try {
+        [Mole.SafePathIdentity]::DeleteFileBound(
+            [string[]]$paths,
+            [string[]]$identities,
+            [uint64]$ExpectedSnapshot.Length,
+            [long]$ExpectedSnapshot.LastWriteUtcTicks,
+            [uint32]$ExpectedSnapshot.Attributes,
+            [string]$ExpectedSnapshot.Sha256)
+        $size = [long]$ExpectedSnapshot.Length
+        $script:TotalSizeCleaned += [Math]::Ceiling($size / 1024)
+        $script:FilesCleaned++
+        $script:TotalItems++
+        $name = if ($Description) { $Description } else { Split-Path -Leaf $Path }
+        Write-Success "$name $($script:Colors.Green)($(Format-ByteSize -Bytes $size))$($script:Colors.NC)"
+        return [pscustomobject]@{ Success = $true; Path = $ExpectedSnapshot.Path; BytesRemoved = $size; Error = $null }
+    }
+    catch {
+        $base = $_.Exception.GetBaseException()
+        $message = $_.Exception.Message
+        if ($base -is [System.ComponentModel.Win32Exception] -and $base.NativeErrorCode -in 5, 32, 33) {
+            $message = 'Access denied or the file is in use.'
+        }
+        return [pscustomobject]@{ Success = $false; Path = $ExpectedSnapshot.Path; BytesRemoved = 0; Error = $message }
+    }
 }
 
 function Test-SafePath {
@@ -199,10 +401,16 @@ function Get-TreeItemsNoFollow {
     $pending.Push($Path)
     $snapshots = @{ $Path = $rootSnapshot }
     while ($pending.Count -gt 0) {
+        if ($script:MoleCleanPlanCancellationToken -and $script:MoleCleanPlanCancellationToken.IsCancellationRequested) {
+            throw [System.OperationCanceledException]::new('Cleanup scan cancelled.')
+        }
         if ($walkTimer.Elapsed.TotalSeconds -ge 15) { throw 'Cleanup walk timed out' }
         $directory = $pending.Pop()
         if (-not (Test-MolePathSnapshot $snapshots[$directory])) { throw "Directory changed: $directory" }
         foreach ($item in @(Get-ChildItem -LiteralPath $directory -Force -ErrorAction $errorAction)) {
+            if ($script:MoleCleanPlanCancellationToken -and $script:MoleCleanPlanCancellationToken.IsCancellationRequested) {
+                throw [System.OperationCanceledException]::new('Cleanup scan cancelled.')
+            }
             if ($walkTimer.Elapsed.TotalSeconds -ge 15) { throw 'Cleanup walk timed out' }
             $snapshot = Get-MoleChildSnapshot -ParentSnapshot $snapshots[$directory] -Path $item.FullName
             if (-not $snapshot) { $snapshot = Get-MolePathSnapshot -Path $item.FullName -AllowLeafLink }
@@ -498,8 +706,14 @@ function Remove-SafeItem {
 
         [switch]$Recycle,
 
-        [scriptblock]$Guard = $null
+        [scriptblock]$Guard = $null,
+
+        [hashtable]$ExpectedSnapshot = $null
     )
+
+    if ($null -ne $ExpectedSnapshot) {
+        return Invoke-MoleSafePlanFileRemoval -Path $Path -Description $Description -ExpectedSnapshot $ExpectedSnapshot
+    }
     
     # Validate path safety
     if (-not (Test-SafePath -Path $Path)) {
@@ -536,6 +750,12 @@ function Remove-SafeItem {
         if ($allowed -isnot [bool] -or -not $allowed) { return $false }
     }
     if (-not (Test-MolePathSnapshot $pathSnapshot)) { return $false }
+
+    if ($script:MoleCleanPlanCaptureMode) {
+        $name = if ($Description) { $Description } else { Split-Path -Leaf $Path }
+        $null = Add-MoleCleanPlanCandidate -Path $Path -Description $name
+        return $true
+    }
 
     # Handle dry run
     if ($script:MoleDryRunMode) {
@@ -626,6 +846,11 @@ function Remove-SafeItems {
         
         $size = Get-PathSize -Path $path
         if (-not (Test-SafePath $path) -or -not (Test-MolePathSnapshot $pathSnapshot)) { continue }
+
+        if ($script:MoleCleanPlanCaptureMode) {
+            $null = Add-MoleCleanPlanCandidate -Path $path -Description $Description
+            continue
+        }
 
         if ($script:MoleDryRunMode) {
             $totalSize += $size

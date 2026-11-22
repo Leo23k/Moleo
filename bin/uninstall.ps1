@@ -14,7 +14,9 @@ param(
     [switch]$Rescan,
     
     [Alias('h')]
-    [switch]$ShowHelp
+    [switch]$ShowHelp,
+
+    [switch]$GuiJson
 )
 
 Set-StrictMode -Version Latest
@@ -795,6 +797,85 @@ function Get-InstalledApplications {
     return $apps
 }
 
+function ConvertTo-GuiAppRecord {
+    param($App)
+
+    [pscustomobject]@{
+        Id = Get-GuiAppId -App $App
+        Name = [string]$App.Name
+        Publisher = [string]$App.Publisher
+        Version = [string]$App.Version
+        SizeKB = [long]$App.SizeKB
+        SizeHuman = [string]$App.SizeHuman
+        SizeChecked = [bool]$App.SizeChecked
+        Source = [string]$App.Source
+    }
+}
+
+function Get-GuiAppId {
+    param($App)
+
+    $identity = @(
+        [string](Get-MoleProperty $App 'Source')
+        [string](Get-MoleProperty $App 'PackageFullName')
+        [string](Get-MoleProperty $App 'RegistryKey')
+        [string](Get-MoleProperty $App 'Name')
+        [string](Get-MoleProperty $App 'Publisher')
+        [string](Get-MoleProperty $App 'Version')
+        [string](Get-MoleProperty $App 'InstallLocation')
+        [string](Get-MoleProperty $App 'UninstallString')
+        [string](Get-MoleProperty $App 'QuietUninstallString')
+    ) -join "`n"
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($identity)))).Replace('-','').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+
+function Invoke-GuiAppRequest {
+    param($Request)
+
+    $request = $Request
+    if ($request.action -notin @('inventory','uninstall')) { throw 'Unknown Apps request.' }
+    $ids = @($request.ids | ForEach-Object { [string]$_ })
+    if ($request.action -eq 'inventory' -and $ids.Count -gt 0) { throw 'Inventory requests cannot include app IDs.' }
+    if ($request.action -eq 'uninstall' -and ($ids.Count -eq 0 -or $ids.Count -gt 100)) { throw 'Uninstall requires between 1 and 100 selected app IDs.' }
+
+    if ($request.action -eq 'inventory') {
+        $apps = @(Get-InstalledApplications -ForceRescan 6>$null)
+        return [pscustomobject]@{ State = 'success'; Items = @($apps | ForEach-Object { ConvertTo-GuiAppRecord $_ }) }
+    }
+
+    if ($env:MOLE_DRY_RUN -eq '1') { throw 'Mole dry-run mode is enabled; no apps were changed.' }
+    if (@($ids | Select-Object -Unique).Count -ne $ids.Count) { throw 'The selected app list contains duplicate IDs.' }
+
+    $apps = @(Get-InstalledApplications -ForceRescan 6>$null)
+    $selected = @($apps | Where-Object { $ids -contains (Get-GuiAppId -App $_) })
+    if ($selected.Count -ne $ids.Count) { throw 'One or more selected apps changed or are no longer available. Refresh the inventory.' }
+
+    $results = @($selected | ForEach-Object {
+        $app = $_
+        $id = Get-GuiAppId -App $app
+        $operationError = $null
+        try { Uninstall-SelectedApps -Apps @($app) 6>$null }
+        catch { $operationError = $_.Exception.Message }
+        try {
+            if ($app.Source -eq 'WindowsStore') {
+                $stillInstalled = @(Get-AppxPackage -PackageFullName $app.PackageFullName -ErrorAction Stop).Count -gt 0
+            }
+            else { $stillInstalled = -not (Test-UninstallEntryGone -KeyPath ([string]$app.RegistryKey)) }
+            $state = if ($stillInstalled) { 'failed' } else { 'success' }
+            $detail = if ($stillInstalled) { 'The app remains installed or its removal could not be verified.' } else { 'The app is no longer registered.' }
+        }
+        catch {
+            $state = 'failed'
+            $detail = 'Removal could not be verified: ' + $_.Exception.Message
+        }
+        if ($operationError -and $state -eq 'success') { $detail += ' ' + $operationError }
+        [pscustomobject]@{ Id = $id; Name = [string]$app.Name; State = $state; Details = $detail }
+    })
+    return [pscustomobject]@{ State = 'complete'; Results = $results }
+}
+
 # ============================================================================
 # Application Selection UI
 # ============================================================================
@@ -1177,4 +1258,11 @@ function Main {
 }
 
 # Run main
-try { Main } finally { Stop-Spinner }
+if ($GuiJson) {
+    try {
+        $request = [Console]::In.ReadToEnd() | ConvertFrom-Json -ErrorAction Stop
+        Invoke-GuiAppRequest -Request $request | ConvertTo-Json -Depth 5 -Compress
+    }
+    catch { [pscustomobject]@{ State = 'error'; Error = $_.Exception.Message } | ConvertTo-Json -Compress; exit 1 }
+}
+else { try { Main } finally { Stop-Spinner } }

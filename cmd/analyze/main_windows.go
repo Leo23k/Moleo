@@ -13,7 +13,7 @@ import (
 )
 
 func main() {
-	pathFlag, code, keepGoing := parseArgs(os.Args[1:], os.Stdout, os.Stderr)
+	pathFlag, guiJSON, code, keepGoing := parseArgs(os.Args[1:], os.Stdout, os.Stderr)
 	if !keepGoing {
 		os.Exit(code)
 	}
@@ -21,6 +21,16 @@ func main() {
 	envPath := os.Getenv("MO_ANALYZE_PATH")
 	if envPath == "" {
 		envPath = pathFlag
+	}
+	if guiJSON {
+		if envPath == "" {
+			fmt.Fprintln(os.Stderr, "analyze GUI mode requires a scan path")
+			os.Exit(1)
+		}
+		if code := runGUIJSON(envPath, os.Stdout, os.Stderr); code != 0 {
+			os.Exit(code)
+		}
+		return
 	}
 	target, isOverview, err := resolveScanTarget(envPath, flag.Args())
 	if err != nil {
@@ -37,22 +47,24 @@ func main() {
 
 // parseArgs applies Mole's CLI conventions to the flag package: help goes to
 // stdout and exits 0, and an unknown flag goes to stderr and exits 1. It
-// returns the legacy -path value, the exit code and whether main should run.
-func parseArgs(args []string, stdout, stderr io.Writer) (string, int, bool) {
+// returns the legacy -path value, whether GUI NDJSON mode was requested, the
+// exit code and whether main should run.
+func parseArgs(args []string, stdout, stderr io.Writer) (string, bool, int, bool) {
 	flag.CommandLine.Init("mo analyze", flag.ContinueOnError)
 	flag.CommandLine.SetOutput(io.Discard)
 	flag.CommandLine.Usage = func() {}
 	pathFlag := flag.String("path", "", "Path to analyze")
+	guiJSON := flag.Bool("gui-json", false, "Internal: emit scan progress and results as NDJSON")
 
 	err := flag.CommandLine.Parse(args)
 	switch {
 	case errors.Is(err, flag.ErrHelp):
 		_, _ = fmt.Fprint(stdout, usageText)
-		return "", 0, false
+		return "", false, 0, false
 	case err != nil:
 		_, _ = fmt.Fprintln(stderr, err)
 		_, _ = fmt.Fprintln(stderr, "Use 'mo analyze --help' for usage information")
-		return "", 1, false
+		return "", false, 1, false
 	}
-	return *pathFlag, 0, true
+	return *pathFlag, *guiJSON, 0, true
 }
