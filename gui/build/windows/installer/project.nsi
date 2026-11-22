@@ -96,6 +96,17 @@ Section
 
     !insertmacro wails.files
 
+    ; Mole CLI scripts: the Apps and Optimize tabs run them. Moleo finds
+    ; mole.ps1 next to its own exe.
+    File "..\..\..\..\mole.ps1"
+    File "..\..\..\..\VERSION"
+    File "..\..\..\..\LICENSE"
+    SetOutPath "$INSTDIR\bin"
+    File "..\..\..\..\bin\*.ps1"
+    SetOutPath "$INSTDIR\lib"
+    File /r "..\..\..\..\lib\*.ps1"
+    SetOutPath $INSTDIR
+
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
     CreateShortCut "$DESKTOP\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
 

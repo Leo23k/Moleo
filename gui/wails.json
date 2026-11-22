@@ -6,8 +6,11 @@
   "frontend:build": "npm run build",
   "frontend:dev:watcher": "npm run dev",
   "frontend:dev:serverUrl": "auto",
-  "author": {
-    "name": "Khanh",
-    "email": "khanhlqx@gmail.com"
+  "info": {
+    "companyName": "Moleo",
+    "productName": "Moleo",
+    "productVersion": "0.1.0",
+    "copyright": "GPL-3.0",
+    "comments": "Windows cleanup and maintenance (Go + Wails front end for the Mole CLI)"
   }
 }
